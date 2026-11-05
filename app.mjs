@@ -5,7 +5,7 @@ import { deckStatus, reviewQueue, previewRatings, intervalLabel, ratingLabels } 
 const root = document.querySelector('#app');
 const config = window.MARGEM_CONFIG || {};
 const e = value => String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-const state = { library: null, password: '', key: null, token: '', profile: null, attempts: [], pending: [], page: 'library', flash: null, bookId: '', chapterId: '', session: null, error: '', busy: false, sync: 'saved', historyLimit: 40 };
+const state = { library: null, password: '', key: null, token: '', profile: null, attempts: [], pending: [], page: 'library', flash: null, bookId: '', chapterId: '', session: null, error: '', busy: false, sync: 'saved', historyLimit: 40, admin: {token:'',events:[],before:null,busy:false,error:''} };
 let syncPromise;
 let persistPromise = Promise.resolve();
 let readerAbort;
@@ -43,9 +43,9 @@ function updateSync() {
   const el = document.querySelector('[data-sync]');
   if (el) { el.classList.toggle('pending', !!state.pending.length); el.querySelector('span:last-of-type').textContent = syncLabel(); }
 }
-async function api(path, method = 'GET', data) {
+async function api(path, method = 'GET', data, token = state.token) {
   const response = await fetch((config.apiBase || '') + '/api' + path, {
-    method, headers: { ...(data ? { 'Content-Type': 'application/json' } : {}), ...(state.token ? { Authorization: 'Bearer ' + state.token } : {}) },
+    method, headers: { ...(data ? { 'Content-Type': 'application/json' } : {}), ...(token ? { Authorization: 'Bearer ' + token } : {}) },
     body: data ? JSON.stringify(data) : undefined, cache: 'no-store', credentials: 'omit',
   });
   const result = await response.json();
@@ -64,7 +64,7 @@ async function sync() {
     try {
       while (state.pending.length && state.profile?.id === profile) {
         const chunk = state.pending.slice(0, 50);
-        const envelopes = await Promise.all(chunk.map(async a => ({id:a.id,box:await sealRecord(a,state.key,profile+':'+a.id)})));
+        const envelopes = await Promise.all(chunk.map(async a => ({id:a.id,box:await sealRecord(a,state.key,profile+':'+a.id),activity:a.kind==='flashcard'?{action:'card_reviewed',bookId:a.bookId,cardId:a.cardId,rating:a.rating,practice:a.practice}:{action:'question_answered',bookId:a.bookId,questionId:a.questionId,correct:a.correct}})));
         const { saved } = await api('/attempts', 'POST', { attempts: envelopes });
         if (state.profile?.id !== profile) return;
         const ids = new Set(saved);
@@ -94,6 +94,7 @@ async function sync() {
   })();
   return syncPromise;
 }
+function track(action,details={}) { if(state.token)api('/activity','POST',{action,...details}).catch(()=>{}); }
 function pdfUrl(b) {
   if (!b.pdf?.data) return null;
   if (!pdfUrls.has(b.id)) pdfUrls.set(b.id, URL.createObjectURL(new Blob([bytes(b.pdf.data)], { type: 'application/pdf' })));
@@ -103,11 +104,11 @@ const cover = b => `<div class="book-cover" aria-hidden="true"><span class="cove
 function auth() {
   const choosingName = !!state.library;
   const lastName = '';
-  return `<div class="auth"><section class="auth-story" aria-label="mindware"><a class="wordmark" href="./">mindware<span>↗</span></a><div><p class="eyebrow">Um espaço para voltar às ideias</p><h1>Leia.<br>Pratique.<br><em>Faça ficar.</em></h1><p>Seus livros, pequenas revisões e tempo para entender. Sem pressa de terminar.</p><div class="auth-art" aria-hidden="true"><i></i><i>a.</i><i></i></div></div><p class="auth-bottom">Biblioteca compartilhada · estudo no seu ritmo</p></section><main id="main" class="auth-form"><div><span class="tag">${choosingName ? '02 / Seu perfil' : '01 / Nosso espaço'}</span><h1>${choosingName ? 'Como podemos te chamar?' : 'Bom ter você por aqui.'}</h1><p class="muted">${choosingName ? 'Use o mesmo nome em qualquer dispositivo para retomar seu progresso.' : 'Entre com a senha compartilhada para abrir a biblioteca.'}</p><form id="login-form"><label for="login-input">${choosingName ? 'Seu nome ou apelido' : 'Senha do site'}</label><input id="login-input" class="input" name="entry" ${choosingName ? 'type="text" autocomplete="nickname" minlength="2" maxlength="40"' : 'type="password" autocomplete="current-password" maxlength="1024"'} value="${choosingName ? e(lastName) : ''}" required aria-describedby="login-hint login-error" ${state.busy ? 'disabled' : ''}><p class="hint" id="login-hint">${choosingName ? 'Escolha um nome que seus colegas não usem. Aqui são perfis simples, sem senha individual.' : 'O conteúdo só é desbloqueado depois da senha.'}</p><p id="login-error" class="error" role="alert">${e(state.error)}</p><button class="btn primary" ${state.busy ? 'disabled' : ''}>${state.busy ? 'Preparando…' : choosingName ? 'Entrar no meu espaço →' : 'Abrir a biblioteca →'}</button>${choosingName ? '<button class="quiet" type="button" data-action="lock">← Voltar à senha</button>' : ''}</form>${config.preview ? '<div class="preview-note"><b>Prévia para testar</b><br>Senha: <strong>estudar-juntos-2026</strong><br>O banco desta demonstração é local. A publicação usará sua senha e o banco na nuvem.</div>' : ''}</div></main></div>`;
+  return `<div class="auth"><section class="auth-story" aria-label="mindware"><a class="wordmark" href="./">mindware<span>↗</span></a><div><p class="eyebrow">Um espaço para voltar às ideias</p><h1>Leia.<br>Pratique.<br><em>Faça ficar.</em></h1><p>Seus livros, pequenas revisões e tempo para entender. Sem pressa de terminar.</p><div class="auth-art" aria-hidden="true"><i></i><i>a.</i><i></i></div></div><p class="auth-bottom">Biblioteca compartilhada · estudo no seu ritmo</p></section><main id="main" class="auth-form"><div><span class="tag">${choosingName ? '02 / Seu perfil' : '01 / Nosso espaço'}</span><h1>${choosingName ? 'Como podemos te chamar?' : 'Bom ter você por aqui.'}</h1><p class="muted">${choosingName ? 'Use o mesmo nome em qualquer dispositivo para retomar seu progresso.' : 'Entre com a senha compartilhada para abrir a biblioteca.'}</p><form id="login-form"><label for="login-input">${choosingName ? 'Seu nome ou apelido' : 'Senha do site'}</label><input id="login-input" class="input" name="entry" ${choosingName ? 'type="text" autocomplete="nickname" minlength="2" maxlength="40"' : 'type="password" autocomplete="current-password" maxlength="1024"'} value="${choosingName ? e(lastName) : ''}" required aria-describedby="login-hint login-error" ${state.busy ? 'disabled' : ''}><p class="hint" id="login-hint">${choosingName ? 'Escolha um nome que seus colegas não usem. Aqui são perfis simples, sem senha individual.' : 'O conteúdo só é desbloqueado depois da senha.'}</p><p id="login-error" class="error" role="alert">${e(state.error)}</p><button class="btn primary" ${state.busy ? 'disabled' : ''}>${state.busy ? 'Preparando…' : choosingName ? 'Entrar no meu espaço →' : 'Abrir a biblioteca →'}</button>${choosingName ? '<button class="quiet" type="button" data-action="lock">← Voltar à senha</button>' : ''}</form><p class="footnote">O administrador registra nome, IP e atividade neste espaço.</p>${config.preview ? '<div class="preview-note"><b>Prévia para testar</b><br>Senha: <strong>estudar-juntos-2026</strong><br>O banco desta demonstração é local. A publicação usará sua senha e o banco na nuvem.</div>' : ''}</div></main></div>`;
 }
 function shell(content) {
   const nav = [['library', '▤', 'Biblioteca'], ['decks', '↺', 'Cartões'], ['progress', '◷', 'Meu progresso'], ['settings', '⚙', 'Meu espaço']];
-  return `<div class="shell ${['quiz','reader','flash','flash-result'].includes(state.page) ? 'focus-mode' : ''}"><aside class="sidebar"><a href="#" data-action="nav" data-page="library" class="wordmark">mindware<span>↗</span></a><nav class="nav" aria-label="Principal">${nav.map(([page, icon, label]) => `<button data-action="nav" data-page="${page}" class="${(state.page === page || (page === 'decks' && ['flash','flash-result'].includes(state.page)) || (page === 'library' && ['book','quiz','result'].includes(state.page))) ? 'active' : ''}" ${(state.page === page || (page === 'decks' && ['flash','flash-result'].includes(state.page))) ? 'aria-current="page"' : ''}><span class="nav-icon" aria-hidden="true">${icon}</span>${label}</button>`).join('')}</nav><div class="sidebar-bottom"><div class="profile"><span class="avatar">${e(state.profile.name.slice(0,2).toUpperCase())}</span><div><div class="profile-name">${e(state.profile.name)}</div><div class="profile-label">Seu espaço de estudo</div></div><button class="quiet" data-action="logout" aria-label="Sair do perfil">↗</button></div></div></aside><div class="content"><header class="topbar"><span class="topbar-label">mindware · treino de racionalidade</span><span class="mobile-brand">mindware ↗</span><div class="sync ${state.pending.length ? 'pending' : ''}" data-sync><span class="sync-dot" aria-hidden="true"></span><span>${syncLabel()}</span><button data-action="sync" aria-label="Sincronizar agora">↻</button></div></header><main id="main">${content}</main></div></div>`;
+  return `<div class="shell ${['quiz','reader','flash','flash-result'].includes(state.page) ? 'focus-mode' : ''}"><aside class="sidebar"><a href="#" data-action="nav" data-page="library" class="wordmark">mindware<span>↗</span></a><nav class="nav" aria-label="Principal">${nav.map(([page, icon, label]) => `<button data-action="nav" data-page="${page}" class="${(state.page === page || (page === 'decks' && ['flash','flash-result'].includes(state.page)) || (page === 'library' && ['book','quiz','result'].includes(state.page))) ? 'active' : ''}" ${(state.page === page || (page === 'decks' && ['flash','flash-result'].includes(state.page))) ? 'aria-current="page"' : ''}><span class="nav-icon" aria-hidden="true">${icon}</span>${label}</button>`).join('')}</nav><div class="sidebar-bottom"><div class="profile"><span class="avatar">${e(state.profile.name.slice(0,2).toUpperCase())}</span><div><div class="profile-name">${e(state.profile.name)}</div><div class="profile-label">Seu espaço de estudo</div></div><button class="quiet" data-action="logout" aria-label="Sair do perfil">↗</button></div></div></aside><div class="content"><header class="topbar"><span class="topbar-label">mindware · treino de racionalidade</span><span class="mobile-brand">mindware ↗</span>${adminOwner()?'<button class="quiet admin-top" data-action="admin">ADM</button>':''}<div class="sync ${state.pending.length ? 'pending' : ''}" data-sync><span class="sync-dot" aria-hidden="true"></span><span>${syncLabel()}</span><button data-action="sync" aria-label="Sincronizar agora">↻</button></div></header><main id="main">${content}</main></div></div>`;
 }
 function stats(s) {
   return `<div class="stats"><div class="stat"><strong>${s.answered}<small class="muted" style="font:inherit;font-size:.45em"> / ${s.total}</small></strong><span>questões exploradas</span></div><div class="stat"><strong>${s.accuracy}%</strong><span>acertos nas tentativas</span></div><div class="stat"><strong>${s.mistakes}</strong><span>questões para revisar</span></div></div>`;
@@ -139,7 +140,7 @@ function result() {
 }
 function reader() {
   const b = book();
-  return `<section class="pdf-reader"><header class="reader-header"><button class="quiet" data-action="back-book">← Voltar ao livro</button><h1>${e(b.title)}</h1><a class="quiet" href="${pdfUrl(b)}" download="${e(b.pdf.filename)}">Baixar PDF ↓</a></header><div id="pdf-host" aria-label="Leitor do resumo de ${e(b.author)}"><p class="hint" role="status">Abrindo o PDF…</p></div></section>`;
+  return `<section class="pdf-reader"><header class="reader-header"><button class="quiet" data-action="back-book" aria-label="Voltar ao livro">← Voltar</button><h1>${e(b.title)}</h1><a class="quiet" href="${pdfUrl(b)}" download="${e(b.pdf.filename)}">Baixar PDF ↓</a></header><div id="pdf-host" aria-label="Leitor do resumo de ${e(b.author)}"><p class="hint" role="status">Abrindo o PDF…</p></div></section>`;
 }
 function decks() {
   return `<div class="page-intro"><div><p class="eyebrow">Revisão espaçada</p><h1>Uma ideia por vez.</h1><p>Tente lembrar, revele a resposta e avalie sua lembrança.</p></div></div><div class="deck-list">${books().map(b=>{
@@ -185,7 +186,38 @@ function progress() {
   }).join('')}</div>${history.length > state.historyLimit ? '<button class="btn secondary" style="margin-top:20px" data-action="more-history">Mostrar mais tentativas</button>' : ''}` : '<div class="empty"><h2>A primeira tentativa abre o caminho.</h2><p>Escolha um livro na biblioteca e faça uma rodada curta.</p><button class="btn primary" data-action="nav" data-page="library">Ir à biblioteca →</button></div>'}`;
 }
 function settings() {
-  return `<div class="settings"><p class="eyebrow">Seu espaço</p><h1>Simples, do seu jeito.</h1><section><h2>Você está usando o perfil ${e(state.profile.name)}</h2><p>Entre com o mesmo nome em outro dispositivo para continuar. Maiúsculas, acentos e espaços extras não criam outro perfil. A senha do site é compartilhada; quem a conhece pode entrar usando qualquer nome.</p><button class="btn secondary" data-action="logout">Sair / trocar de perfil →</button></section><section><h2>Seu progresso, guardado</h2><p>As respostas são sincronizadas automaticamente. Se a conexão cair, novas tentativas aguardam neste navegador até você se conectar de novo. Não limpe os dados do navegador enquanto houver respostas pendentes.</p><div class="actions"><button class="btn secondary" data-action="sync">Sincronizar agora ↻</button><button class="quiet" data-action="export">Baixar meu histórico ↓</button></div></section><section><h2>Recomeçar sem perder o caminho</h2><p>Você pode refazer qualquer etapa. Todas as tentativas ficam no histórico; a revisão de erros considera a resposta mais recente de cada questão.</p></section><section><h2>Apagar este perfil</h2><p>Remove as respostas deste nome no banco. Você pode criar um perfil novo depois, inclusive com o mesmo nome.</p><button class="quiet danger" data-action="delete-profile">Apagar perfil e histórico</button></section></div>`;
+  return `<div class="settings"><p class="eyebrow">Seu espaço</p><h1>Simples, do seu jeito.</h1><section><h2>Você está usando o perfil ${e(state.profile.name)}</h2><p>Entre com o mesmo nome em outro dispositivo para continuar. Maiúsculas, acentos e espaços extras não criam outro perfil. A senha do site é compartilhada; quem a conhece pode entrar usando qualquer nome.</p><button class="btn secondary" data-action="logout">Sair / trocar de perfil →</button></section><section><h2>Seu progresso, guardado</h2><p>As respostas são sincronizadas automaticamente. Se a conexão cair, novas tentativas aguardam neste navegador até você se conectar de novo. Não limpe os dados do navegador enquanto houver respostas pendentes.</p><div class="actions"><button class="btn secondary" data-action="sync">Sincronizar agora ↻</button><button class="quiet" data-action="export">Baixar meu histórico ↓</button></div></section><section><h2>Recomeçar sem perder o caminho</h2><p>Você pode refazer qualquer etapa. Todas as tentativas ficam no histórico; a revisão de erros considera a resposta mais recente de cada questão.</p></section>${adminOwner()?'<section><h2>Administração</h2><button class="quiet" data-action="admin">Abrir painel do administrador →</button></section>':''}<section><h2>Apagar este perfil</h2><p>Remove as respostas deste nome no banco. Os registros de acesso e atividade do administrador permanecem guardados.</p><button class="quiet danger" data-action="delete-profile">Apagar perfil e histórico</button></section></div>`;
+}
+function activityDescription(item) {
+  const d=item.details||{};
+  const b=books().find(b=>b.id===d.bookId);
+  if(item.action==='card_reviewed')return `${ratingLabels[d.rating]||'Revisou cartão'}${d.practice?' (treino livre)':''} · ${allCards().find(c=>c.id===d.cardId)?.front||d.cardId}`;
+  if(item.action==='question_answered')return `${d.correct?'Acertou':'Errou'} · ${allQuestions().find(q=>q.id===d.questionId)?.prompt||d.questionId}`;
+  if(item.action==='pdf_page')return `Leu página ${d.page} · ${b?.title||d.bookId}`;
+  return ({login:'Entrou no site',logout:'Saiu do perfil',book_open:'Abriu livro',cards_open:'Abriu cartões',backup_export:'Exportou histórico',profile_deleted:'Excluiu o perfil',answer_saved:'Salvou uma resposta'}[item.action]||item.action)+(b?' · '+b.title:'');
+}
+const adminOwner = () => state.profile && normalizeName(state.profile.name)==='joao';
+function adminView() {
+  const a=state.admin;
+  if(!a.token)return `<div class="admin-login"><p class="eyebrow">Acesso restrito</p><h1>Administração</h1><p class="muted">Perfil joao · use sua senha de administrador.</p><form id="admin-login"><label for="admin-password">Senha de administrador</label><input class="input" id="admin-password" name="password" type="password" autocomplete="current-password" required maxlength="1024" ${a.busy?'disabled':''}><p class="error" role="alert">${e(a.error)}</p><button class="btn primary" ${a.busy?'disabled':''}>${a.busy?'Entrando…':'Abrir painel'}</button></form></div>`;
+  return `<div class="page-intro"><div><p class="eyebrow">Acesso restrito</p><h1>Atividade do espaço</h1><p>Nome usado, IP e ações registradas. Sem exclusão automática.</p></div><div class="actions"><button class="btn secondary" data-action="admin-refresh" ${a.busy?'disabled':''}>Atualizar</button><button class="quiet" data-action="admin-exit">Fechar administração</button></div></div><p class="error" role="alert">${e(a.error)}</p><div class="audit-list">${a.events.length?a.events.map(item=>`<article class="audit-row"><div><strong>${e(item.name)}</strong><small>${e(new Date(item.at*1000).toLocaleString('pt-BR'))} · IP ${e(item.ip)}</small></div><p>${e(activityDescription(item))}</p></article>`).join(''):'<p class="muted">Nenhuma atividade registrada ainda.</p>'}</div>${a.before?'<button class="btn secondary" data-action="admin-more">Carregar mais</button>':''}<p class="footnote">Nomes são declarados por quem entra. IPs podem mudar ou ser compartilhados. A navegação é informada pelo navegador; respostas pendentes são registradas quando sincronizam.</p>`;
+}
+async function loadActivity(append=false) {
+  const a=state.admin;if(a.busy)return;
+  a.busy=true;a.error='';render(false);
+  try {
+    const result=await api('/admin/activity'+(append&&a.before?'?before='+a.before:''),'GET',undefined,a.token);
+    a.events=append?[...a.events,...result.events]:result.events;a.before=result.before;
+  } catch(error) {a.error=error.message;if(error.status===401)a.token='';}
+  finally {a.busy=false;render(false);}
+}
+async function adminLogin(event) {
+  event.preventDefault();const a=state.admin;if(a.busy)return;
+  let password=new FormData(event.target).get('password');a.busy=true;a.error='';render(false);
+  try {const result=await api('/admin/login','POST',{password},state.token);a.token=result.token;}
+  catch(error){a.error=error.message;}
+  finally{password='';a.busy=false;}
+  if(a.token)await loadActivity();else render();
 }
 function refreshDeckWhenDue() {
   clearTimeout(deckTimer);
@@ -205,7 +237,7 @@ function refreshDeckWhenDue() {
 }
 function render(focus = true) {
   readerAbort?.abort(); readerAbort = null;
-  const pages = { library, book: bookView, quiz, result, progress, settings, reader, decks, flash:flashcard, 'flash-result':flashResult };
+  const pages = { library, book: bookView, quiz, result, progress, settings, reader, decks, flash:flashcard, 'flash-result':flashResult, admin:adminView };
   root.innerHTML = state.profile ? shell((pages[state.page] || library)()) : auth();
   refreshDeckWhenDue();
   if (state.profile && state.page === 'reader') {
@@ -213,7 +245,7 @@ function render(focus = true) {
     const signal = readerAbort.signal;
     const data = bytes(book().pdf.data);
     const host = document.querySelector('#pdf-host');
-    import('./reader.mjs').then(module => { if (!signal.aborted) return module.mountReader(data,host,signal); }).catch(() => { if (!signal.aborted) host.textContent = 'Não foi possível abrir o leitor. Você pode baixar o PDF.'; });
+    import('./reader.mjs').then(module => { if (!signal.aborted) return module.mountReader(data,host,signal,page=>track('pdf_page',{bookId:state.bookId,page})); }).catch(() => { if (!signal.aborted) host.textContent = 'Não foi possível abrir o leitor. Você pode baixar o PDF.'; });
   }
   if (focus) requestAnimationFrame(() => {
     const target = state.page === 'flash' && state.profile ? document.querySelector(state.flash.revealed?'.flash-answer':'#main h1') : state.page === 'quiz' && state.profile ? document.querySelector(state.session.checked ? '.feedback' : 'h1') : state.profile ? document.querySelector('#main h1') : document.querySelector('#login-input');
@@ -275,13 +307,18 @@ function downloadFile(data, filename, type) {
 async function logout() {
   if (state.pending.length && !confirm('Há respostas pendentes neste navegador. Elas serão reenviadas quando você entrar neste mesmo perfil aqui. Sair agora?')) return;
   await persistPromise;
+  track('logout');
+  state.admin={token:'',events:[],before:null,busy:false,error:''};
   state.profile = null; state.token = ''; state.password = ''; state.key = null; state.library = null; state.attempts = []; state.pending = []; state.session = null; state.flash = null; state.error = ''; state.page = 'library';
   for (const url of pdfUrls.values()) URL.revokeObjectURL(url); pdfUrls.clear(); render();
 }
-root.addEventListener('submit', event => { if (event.target.id === 'login-form') login(event); });
+root.addEventListener('submit', event => { if (event.target.id === 'login-form') login(event); else if(event.target.id==='admin-login')adminLogin(event); });
 root.addEventListener('click', async event => {
   const target = event.target.closest('[data-action]'); if (!target) return; event.preventDefault();
   const { action, page, book: bid, chapter, mode, choice } = target.dataset;
+  if(action==='admin'){if(!adminOwner())return;state.page='admin';render();if(state.admin.token)await loadActivity();return;}
+  if(action==='admin-refresh'||action==='admin-more')return loadActivity(action==='admin-more');
+  if(action==='admin-exit'){state.admin={token:'',events:[],before:null,busy:false,error:''};state.page='settings';render();return;}
   if(action==='start-cards'||action==='free-cards')return startCards(bid,action==='free-cards');
   if(action==='end-cards'){state.page='decks';render();return;}
   if(action==='reveal-card'){
@@ -308,17 +345,17 @@ root.addEventListener('click', async event => {
   if (action === 'leave-quiz') { if (!confirm('Encerrar esta rodada? As respostas já conferidas continuam salvas.')) return; state.page = 'book'; }
   if (action === 'nav') {
     if (state.page === 'quiz' && !confirm('Sair da rodada? As respostas já conferidas continuam salvas.')) return;
-    state.page = page; state.chapterId = '';
+    state.page = page; state.chapterId = ''; if(page==='decks')track('cards_open');
   }
   if (action === 'reader') { state.bookId = bid; state.page = 'reader'; }
-  if (action === 'book') { state.bookId = bid; state.page = 'book'; state.chapterId = ''; }
+  if (action === 'book') { state.bookId = bid; state.page = 'book'; state.chapterId = ''; track('book_open',{bookId:bid}); }
   if (action === 'back-book') { state.page = 'book'; state.chapterId = ''; }
   if (action === 'read') { state.chapterId = chapter; window.scrollTo(0,0); }
   if (action === 'close-reading') state.chapterId = '';
   if (action === 'practice') return start(mode, bid, chapter);
   if (action === 'again') return beginSession(state.session.questions, state.session.mode, state.bookId);
   if (action === 'more-history') state.historyLimit += 40;
-  if (action === 'export') { const box = await sealRecord({attempts:state.attempts},state.key,'export:'+state.profile.id); downloadFile(JSON.stringify({profileId:state.profile.id,box},null,2), 'mindware-historico-criptografado.json', 'application/json'); return; }
+  if (action === 'export') { track('backup_export'); const box = await sealRecord({attempts:state.attempts},state.key,'export:'+state.profile.id); downloadFile(JSON.stringify({profileId:state.profile.id,box},null,2), 'mindware-historico-criptografado.json', 'application/json'); return; }
   if (action === 'delete-profile') {
     if (!confirm(`Apagar todas as respostas de ${state.profile.name}? Esta ação não pode ser desfeita pelo site.`)) return;
     try { await persistPromise; await sync(); if (state.sync === 'pending') throw new Error('Conecte-se para apagar seu perfil com segurança.'); await persistPromise; await api('/profile', 'DELETE'); localStorage.removeItem(cacheKey()); state.pending = []; await logout(); }
