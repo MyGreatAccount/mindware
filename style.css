@@ -66,3 +66,5 @@
 .rating-hint{font-size:.76rem;margin-top:16px}
 @media(max-width:720px){.deck-row{align-items:stretch;flex-direction:column;gap:18px}.deck-row .actions{flex-direction:row;align-items:center;gap:18px}.rating-actions{gap:7px;grid-template-columns:repeat(2,1fr)}.rating-actions .btn{font-size:.83rem}.flash-face{margin-top:24px}.flash-answer p{font-size:1rem}.sidebar .nav button{font-size:.6rem}}
 @media(pointer:coarse){.keyboard-hint{display:none}}
+
+.sidebar .wordmark{white-space:nowrap;font-size:1.8rem}
