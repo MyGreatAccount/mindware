@@ -10,6 +10,7 @@ let syncPromise;
 let persistPromise = Promise.resolve();
 let readerAbort;
 let noticeTimer;
+let deckTimer;
 const pdfUrls = new Map();
 const books = () => state.library?.books || [];
 const allQuestions = () => books().flatMap(b => b.chapters.flatMap(ch => ch.questions.map(q => ({ ...q, bookId: b.id, chapterId: ch.id, chapterTitle: ch.title, rules: q.rules || ch.rules }))));
@@ -186,10 +187,27 @@ function progress() {
 function settings() {
   return `<div class="settings"><p class="eyebrow">Seu espaço</p><h1>Simples, do seu jeito.</h1><section><h2>Você está usando o perfil ${e(state.profile.name)}</h2><p>Entre com o mesmo nome em outro dispositivo para continuar. Maiúsculas, acentos e espaços extras não criam outro perfil. A senha do site é compartilhada; quem a conhece pode entrar usando qualquer nome.</p><button class="btn secondary" data-action="logout">Sair / trocar de perfil →</button></section><section><h2>Seu progresso, guardado</h2><p>As respostas são sincronizadas automaticamente. Se a conexão cair, novas tentativas aguardam neste navegador até você se conectar de novo. Não limpe os dados do navegador enquanto houver respostas pendentes.</p><div class="actions"><button class="btn secondary" data-action="sync">Sincronizar agora ↻</button><button class="quiet" data-action="export">Baixar meu histórico ↓</button></div></section><section><h2>Recomeçar sem perder o caminho</h2><p>Você pode refazer qualquer etapa. Todas as tentativas ficam no histórico; a revisão de erros considera a resposta mais recente de cada questão.</p></section><section><h2>Apagar este perfil</h2><p>Remove as respostas deste nome no banco. Você pode criar um perfil novo depois, inclusive com o mesmo nome.</p><button class="quiet danger" data-action="delete-profile">Apagar perfil e histórico</button></section></div>`;
 }
+function refreshDeckWhenDue() {
+  clearTimeout(deckTimer);
+  if (!state.profile || state.page !== 'decks') return;
+  const snapshot = () => JSON.stringify(books().map(b => {
+    const s = deckStatus(cardsFor(b.id),state.attempts);
+    return [b.id,s.due.map(c=>c.id),s.newToday];
+  }));
+  const previous = snapshot();
+  const next = books().map(b=>deckStatus(cardsFor(b.id),state.attempts).next).filter(Boolean);
+  const delay = Math.max(250,Math.min(60000,...next.map(date=>date-Date.now()+100)));
+  deckTimer = setTimeout(() => {
+    if (!state.profile || state.page !== 'decks') return;
+    if (snapshot() !== previous) render(false);
+    else refreshDeckWhenDue();
+  },delay);
+}
 function render(focus = true) {
   readerAbort?.abort(); readerAbort = null;
   const pages = { library, book: bookView, quiz, result, progress, settings, reader, decks, flash:flashcard, 'flash-result':flashResult };
   root.innerHTML = state.profile ? shell((pages[state.page] || library)()) : auth();
+  refreshDeckWhenDue();
   if (state.profile && state.page === 'reader') {
     readerAbort = new AbortController();
     const signal = readerAbort.signal;
