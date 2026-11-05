@@ -35,7 +35,7 @@ export async function mountReader(data,host,signal,onPage) {
           await renderTask.promise;
         }
         host.querySelector('[data-reader-status]').textContent='';
-        if(recordedPage!==pageNumber){recordedPage=pageNumber;onPage?.(pageNumber);}
+        if(recordedPage!==pageNumber){recordedPage=pageNumber;host.querySelector('.pdf-surface').scrollTop=0;onPage?.(pageNumber);}
       } catch(error) {
         if(!signal.aborted)host.querySelector('[data-reader-status]').textContent='Não foi possível mostrar esta página. Tente o Modo texto ou baixe o PDF.';
       } finally {
