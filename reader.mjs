@@ -3,7 +3,7 @@ GlobalWorkerOptions.workerSrc = new URL('./vendor/pdf.worker.min.mjs',import.met
 
 export async function mountReader(data,host,signal,onPage) {
   const task = getDocument({data,isEvalSupported:false,enableScripting:false,enableXfa:false,useWasm:false});
-  let pdf,renderTask,pageNumber=1,zoom=1,textMode=false,busy=false,redraw=false,resizeTimer,recordedPage=0;
+  let pdf,renderTask,pageNumber=1,zoom=matchMedia('(min-width: 721px)').matches ? .75 : 1,textMode=false,busy=false,redraw=false,resizeTimer,recordedPage=0;
   signal.addEventListener('abort',() => { renderTask?.cancel(); task.destroy(); },{once:true});
   try {
     pdf = await task.promise;
