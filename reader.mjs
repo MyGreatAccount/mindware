@@ -3,7 +3,7 @@ GlobalWorkerOptions.workerSrc = new URL('./vendor/pdf.worker.min.mjs',import.met
 
 export async function mountReader(data,host,signal,onPage) {
   const task = getDocument({data,isEvalSupported:false,enableScripting:false,enableXfa:false,useWasm:false});
-  let pdf,renderTask,pageNumber=1,zoom=1,textMode=innerWidth<520,busy=false,redraw=false,resizeTimer,recordedPage=0;
+  let pdf,renderTask,pageNumber=1,zoom=1,textMode=false,busy=false,redraw=false,resizeTimer,recordedPage=0;
   signal.addEventListener('abort',() => { renderTask?.cancel(); task.destroy(); },{once:true});
   try {
     pdf = await task.promise;
@@ -44,7 +44,7 @@ export async function mountReader(data,host,signal,onPage) {
           for(const b of host.querySelectorAll('button'))b.disabled=false;
           host.querySelector('[data-pdf="prev"]').disabled=pageNumber===1;
           host.querySelector('[data-pdf="next"]').disabled=pageNumber===pdf.numPages;
-          host.querySelector('[data-pdf="less"]').disabled=textMode||zoom<=.75;
+          host.querySelector('[data-pdf="less"]').disabled=textMode||zoom<=.25;
           host.querySelector('[data-pdf="more"]').disabled=textMode||zoom>=2;
           if(redraw){redraw=false;queueMicrotask(draw);}
         }
@@ -55,7 +55,7 @@ export async function mountReader(data,host,signal,onPage) {
       if(!action||busy)return;
       if(action==='prev'&&pageNumber>1)pageNumber--;
       if(action==='next'&&pageNumber<pdf.numPages)pageNumber++;
-      if(action==='less')zoom=Math.max(.75,zoom-.25);
+      if(action==='less')zoom=Math.max(.25,zoom-.25);
       if(action==='more')zoom=Math.min(2,zoom+.25);
       if(action==='mode')textMode=!textMode;
       draw();

@@ -5,7 +5,8 @@ import { deckStatus, reviewQueue, previewRatings, intervalLabel, ratingLabels } 
 const root = document.querySelector('#app');
 const config = window.MARGEM_CONFIG || {};
 const e = value => String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-const state = { library: null, password: '', key: null, token: '', profile: null, attempts: [], pending: [], page: 'library', flash: null, bookId: '', chapterId: '', session: null, error: '', busy: false, sync: 'saved', historyLimit: 40, admin: {token:'',events:[],before:null,busy:false,error:''} };
+function emptyAdmin() { return {token:'',events:[],people:[],personId:'',before:null,busy:false,error:''}; }
+const state = { library: null, password: '', key: null, token: '', profile: null, attempts: [], pending: [], page: 'library', flash: null, bookId: '', chapterId: '', session: null, error: '', busy: false, sync: 'saved', historyLimit: 40, admin: emptyAdmin() };
 let syncPromise;
 let persistPromise = Promise.resolve();
 let readerAbort;
@@ -200,16 +201,30 @@ const adminOwner = () => state.profile && normalizeName(state.profile.name)==='j
 function adminView() {
   const a=state.admin;
   if(!a.token)return `<div class="admin-login"><p class="eyebrow">Acesso restrito</p><h1>Administração</h1><p class="muted">Perfil joao · use sua senha de administrador.</p><form id="admin-login"><label for="admin-password">Senha de administrador</label><input class="input" id="admin-password" name="password" type="password" autocomplete="current-password" required maxlength="1024" ${a.busy?'disabled':''}><p class="error" role="alert">${e(a.error)}</p><button class="btn primary" ${a.busy?'disabled':''}>${a.busy?'Entrando…':'Abrir painel'}</button></form></div>`;
-  return `<div class="page-intro"><div><p class="eyebrow">Acesso restrito</p><h1>Atividade do espaço</h1><p>Nome usado, IP e ações registradas. Sem exclusão automática.</p></div><div class="actions"><button class="btn secondary" data-action="admin-refresh" ${a.busy?'disabled':''}>Atualizar</button><button class="quiet" data-action="admin-exit">Fechar administração</button></div></div><p class="error" role="alert">${e(a.error)}</p><div class="audit-list">${a.events.length?a.events.map(item=>`<article class="audit-row"><div><strong>${e(item.name)}</strong><small>${e(new Date(item.at*1000).toLocaleString('pt-BR'))} · IP ${e(item.ip)}</small></div><p>${e(activityDescription(item))}</p></article>`).join(''):'<p class="muted">Nenhuma atividade registrada ainda.</p>'}</div>${a.before?'<button class="btn secondary" data-action="admin-more">Carregar mais</button>':''}<p class="footnote">Nomes são declarados por quem entra. IPs podem mudar ou ser compartilhados. A navegação é informada pelo navegador; respostas pendentes são registradas quando sincronizam.</p>`;
+  const person=a.people.find(p=>p.id===a.personId);
+  return `<div class="page-intro"><div><p class="eyebrow">Acesso restrito</p><h1>Atividade do espaço</h1><p>Escolha um nome para ver suas atividades e IPs. Sem exclusão automática.</p></div><div class="actions"><button class="btn secondary" data-action="admin-refresh" ${a.busy?'disabled':''}>Atualizar</button><button class="quiet" data-action="admin-exit">Fechar administração</button></div></div><p class="error" role="alert">${e(a.error)}</p>${a.people.length?`<div class="audit-tabs" role="tablist" aria-label="Pessoas">${a.people.map(p=>`<button role="tab" id="person-${e(p.id)}" aria-controls="person-activity" aria-selected="${p.id===a.personId}" tabindex="${p.id===a.personId?'0':'-1'}" data-action="admin-person" data-person="${e(p.id)}" ${a.busy?'disabled':''}>${e(p.name)} <small>${p.total}</small></button>`).join('')}</div>`:''}<section id="person-activity" ${person?`role="tabpanel" aria-labelledby="person-${e(person.id)}"`:''} aria-busy="${a.busy}">${person?`<h2 class="audit-person">${e(person.name)}</h2>`:''}<div class="audit-list">${a.busy&&!a.events.length?'<p class="muted" role="status">Carregando atividades…</p>':a.events.length?a.events.map(item=>`<article class="audit-row"><small>${e(new Date(item.at*1000).toLocaleString('pt-BR'))} · IP ${e(item.ip)}</small><p>${e(activityDescription(item))}</p></article>`).join(''):'<p class="muted">Nenhuma atividade registrada.</p>'}</div>${a.before?`<button class="btn secondary" data-action="admin-more" ${a.busy?'disabled':''}>Carregar mais desta pessoa</button>`:''}</section><p class="footnote">Nomes são declarados por quem entra. IPs podem mudar ou ser compartilhados. A navegação é informada pelo navegador; respostas pendentes são registradas quando sincronizam.</p>`;
 }
-async function loadActivity(append=false) {
+async function loadActivity(append=false,personId=null) {
   const a=state.admin;if(a.busy)return;
+  if(personId!==null){a.personId=personId;a.events=[];a.before=null;}
   a.busy=true;a.error='';render(false);
   try {
-    const result=await api('/admin/activity'+(append&&a.before?'?before='+a.before:''),'GET',undefined,a.token);
-    a.events=append?[...a.events,...result.events]:result.events;a.before=result.before;
+    if(!append&&personId===null){
+      const result=await api('/admin/people','GET',undefined,a.token);
+      a.people=result.people;
+      if(!a.people.some(p=>p.id===a.personId))a.personId=a.people[0]?.id||'';
+    }
+    if(a.personId){
+      const params=new URLSearchParams({profile:a.personId});
+      if(append&&a.before)params.set('before',a.before);
+      const result=await api('/admin/activity?'+params,'GET',undefined,a.token);
+      a.events=append?[...a.events,...result.events]:result.events;a.before=result.before;
+    } else {a.events=[];a.before=null;}
   } catch(error) {a.error=error.message;if(error.status===401)a.token='';}
-  finally {a.busy=false;render(false);}
+  finally {
+    a.busy=false;render(false);
+    if(personId!==null&&state.page==='admin'&&a===state.admin)document.querySelector('[data-person="'+CSS.escape(a.personId)+'"]')?.focus();
+  }
 }
 async function adminLogin(event) {
   event.preventDefault();const a=state.admin;if(a.busy)return;
@@ -308,7 +323,7 @@ async function logout() {
   if (state.pending.length && !confirm('Há respostas pendentes neste navegador. Elas serão reenviadas quando você entrar neste mesmo perfil aqui. Sair agora?')) return;
   await persistPromise;
   track('logout');
-  state.admin={token:'',events:[],before:null,busy:false,error:''};
+  state.admin=emptyAdmin();
   state.profile = null; state.token = ''; state.password = ''; state.key = null; state.library = null; state.attempts = []; state.pending = []; state.session = null; state.flash = null; state.error = ''; state.page = 'library';
   for (const url of pdfUrls.values()) URL.revokeObjectURL(url); pdfUrls.clear(); render();
 }
@@ -317,8 +332,9 @@ root.addEventListener('click', async event => {
   const target = event.target.closest('[data-action]'); if (!target) return; event.preventDefault();
   const { action, page, book: bid, chapter, mode, choice } = target.dataset;
   if(action==='admin'){if(!adminOwner())return;state.page='admin';render();if(state.admin.token)await loadActivity();return;}
+  if(action==='admin-person')return loadActivity(false,target.dataset.person);
   if(action==='admin-refresh'||action==='admin-more')return loadActivity(action==='admin-more');
-  if(action==='admin-exit'){state.admin={token:'',events:[],before:null,busy:false,error:''};state.page='settings';render();return;}
+  if(action==='admin-exit'){state.admin=emptyAdmin();state.page='settings';render();return;}
   if(action==='start-cards'||action==='free-cards')return startCards(bid,action==='free-cards');
   if(action==='end-cards'){state.page='decks';render();return;}
   if(action==='reveal-card'){
@@ -366,6 +382,13 @@ root.addEventListener('click', async event => {
 window.addEventListener('online', () => sync());
 document.addEventListener('visibilitychange', () => { if (!document.hidden) sync(); });
 render();
+root.addEventListener('keydown',event=>{
+  if(!event.target.matches('[data-action="admin-person"]')||!['ArrowLeft','ArrowRight','Home','End'].includes(event.key))return;
+  const tabs=[...root.querySelectorAll('[data-action="admin-person"]')];
+  const current=tabs.indexOf(event.target);
+  const next=event.key==='Home'?0:event.key==='End'?tabs.length-1:(current+(event.key==='ArrowRight'?1:-1)+tabs.length)%tabs.length;
+  event.preventDefault();tabs[next]?.click();
+});
 document.addEventListener('keydown',event=>{
   if(!state.profile||state.page!=='flash'||event.repeat||event.ctrlKey||event.metaKey||event.altKey||event.target.matches('input,textarea,select'))return;
   if(event.code==='Space'&&!state.flash.revealed){event.preventDefault();document.querySelector('[data-action="reveal-card"]')?.click();}

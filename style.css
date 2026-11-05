@@ -65,3 +65,4 @@
 
 .sidebar .wordmark{white-space:nowrap;font-size:1.8rem}
 .admin-login{max-width:430px}.admin-login label{display:block;margin:24px 0 8px}.admin-login .btn{width:100%}.audit-list{border-top:1px solid var(--line);margin-bottom:24px}.audit-row{padding:18px 0;border-bottom:1px solid var(--line)}.audit-row small{display:block;color:var(--muted);font-size:.75rem;margin-top:5px;overflow-wrap:anywhere}.audit-row p{margin:10px 0 0;font-size:.88rem;overflow-wrap:anywhere}
+.audit-tabs{display:flex;gap:8px;overflow-x:auto;padding:4px 4px 12px;margin:0 -4px 22px;scrollbar-width:thin}.audit-tabs button{flex:none;min-height:44px;border:1px solid var(--line);border-radius:8px;background:transparent;color:var(--ink);padding:10px 14px;white-space:nowrap}.audit-tabs button[aria-selected="true"]{background:var(--lime);color:var(--dark);border-color:var(--lime)}.audit-tabs small{opacity:.75;margin-left:6px}.audit-person{font-size:1.1rem;margin-bottom:14px}
